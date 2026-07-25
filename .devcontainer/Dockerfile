@@ -15,7 +15,7 @@ RUN apt-get update && \
   wget gnupg curl ca-certificates \
   bubblewrap jq libcap2-bin \
   git-secret gpg gpg-agent \
-  socat && \
+  socat gh && \
   # bubblewrap is now installed; make it setuid so it can create namespace
   # sandboxes on hosts where user namespaces are restricted (the devcontainer
   # base image ships with bubblewrap).
