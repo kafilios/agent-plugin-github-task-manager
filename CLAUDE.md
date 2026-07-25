@@ -1,9 +1,18 @@
+# github-task-manager Skill Distribution
+
+This repository is the distribution source for the `github-task-manager` Claude skill.
+
 # CLAUDE.md
 
 ## Skills
 
 - Skills live in `.claude/skills/<skill-name>/SKILL.md`
 - This repo is the distribution source for the `github-task-manager` skill
+
+## Skill Development
+
+- Test skill prompts in `/tmp/<skill-name>-workspace/iteration-N/`
+- Use `git remote -v` to re-derive repo context per invocation
 
 ## GitHub Integration
 
