@@ -1,2 +1,5 @@
 *.backup.*
-.claude/
+.claude/settings.local.json
+.claude/settings.local.*
+.claude/.credentials.json
+.claude/local/

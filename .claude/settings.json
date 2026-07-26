@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "github-task-manager@local": true
+  },
+  "extraKnownMarketplaces": {
+    "local": {
+      "source": {
+        "source": "directory",
+        "path": "."
+      }
+    }
+  }
+}
