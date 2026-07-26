@@ -15,30 +15,29 @@ A Claude Code plugin for managing tasks via GitHub issues in the current reposit
 ```
 github-task-manager/
 ├── .claude-plugin/
-│   └── plugin.json     # Plugin manifest
-├── skills/
-│   └── complete-tasks/
-│       └── SKILL.md    # The skill definition
+│   └── marketplace.json           # Marketplace catalog for local dev
+├── plugins/
+│   └── github-task-manager/
+│       ├── .claude-plugin/
+│       │   └── plugin.json        # Plugin manifest
+│       └── skills/
+│           └── complete-tasks/
+│               └── SKILL.md       # The skill definition
 └── README.md
 ```
 
-## Installation
+## Installation (Local Development)
 
-Install the plugin by referencing this repository:
+This repo is set up so that `.claude/settings.json` declares a project-local
+marketplace pointing at the repo itself. Once `/reload-plugins` has been run in
+Claude Code, the plugin is enabled automatically for this project — no
+commit/push needed for inner dev loop.
 
-```bash
-/plugin install github-task-manager@<path-to-repo>
+```
+/reload-plugins
 ```
 
-Or for local development:
-
-```bash
-cc --plugin-dir /path/to/github-task-manager
-```
-
-## Usage
-
-Use the skill directly:
+Then use the skill directly:
 
 ```
 /complete-tasks
@@ -48,6 +47,30 @@ Trigger phrases:
 - "Please complete all the outstanding tasks in the GitHub issues for this repository."
 - "What's the current status of all open issues?"
 - "Work on your assigned issues"
+
+## Installation (Published)
+
+To publish the plugin for others to install via a marketplace, replace the
+`directory` source in `.claude/settings.json` with a git URL:
+
+```json
+{
+  "extraKnownMarketplaces": {
+    "github-task-manager": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/kafilios/agent-skill-github-task-manager.git"
+      }
+    }
+  }
+}
+```
+
+Users can then install with:
+
+```
+/plugin install github-task-manager@github-task-manager
+```
 
 ## Requirements
 
