@@ -98,12 +98,21 @@ For issues you can resolve directly:
 
 **Never commit directly to `main` or make changes in the session's working directory.** Always use a dedicated worktree and PR workflow:
 
+### Step 0: Derive Main Working Directory
+
+Before running any git commands, derive the path to the main working directory (the one with the real `.git` folder):
+```bash
+git fetch origin main
+MAIN_TREE=$(git worktree list --porcelain | grep -m1 "^worktree " | sed 's/^worktree //')
+```
+
+From the main tree, you can run `git worktree list` to see all worktrees and perform operations.
+
 ### Step 1: Create a Worktree
 
-Create a new worktree with a dedicated branch for the issue. Worktrees are created inside the `.git` directory:
+Create a new worktree with a dedicated branch for the issue:
 ```bash
-cd /workspaces/agent-skill-github-task-manager-5a7eadc2
-git fetch origin main
+cd "$MAIN_TREE"
 git worktree add .git/worktrees/complete-tasks-issue-$NUMBER origin/main
 cd .git/worktrees/complete-tasks-issue-$NUMBER
 git checkout -b issue/$NUMBER-$short-description
@@ -154,11 +163,25 @@ gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 
 After creating the PR, you can remove the worktree:
 ```bash
-cd /workspaces/agent-skill-github-task-manager-5a7eadc2
 git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER
 ```
 
 **Note:** Worktrees created by this skill are stored under `.git/worktrees/complete-tasks-issue-*` inside the repo.
+
+## Stale Worktree Cleanup
+
+Periodically check for stale worktrees — branches whose remote counterpart no longer exists or whose PR was merged and closed:
+```bash
+git fetch --prune origin
+git worktree list
+```
+
+For each worktree under `complete-tasks-issue-*` whose branch has been merged and deleted from remote:
+```bash
+git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER --force
+```
+
+Use `--force` if the worktree directory has untracked files from a previous session.
 
 ## Processing Complex Issues
 
@@ -195,15 +218,20 @@ The `gh` CLI handles rate limits automatically. If you encounter errors:
 
 ## Workflow for "Complete all issues assigned to you"
 
-1. **Verify access** — Run `gh auth status` and stop if not authenticated
-2. **Cleanup pass** — Remove `needs-input` from closed issues
-3. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
-4. **Filter and sort** — Oldest first, skip if already worked recently
-5. **Process each issue**:
+1. **Sync main tree** — Pull the latest `main` branch into the main working tree:
+   ```bash
+   git fetch origin main
+   git pull origin main
+   ```
+2. **Verify access** — Run `gh auth status` and stop if not authenticated
+3. **Cleanup pass** — Remove `needs-input` from closed issues
+4. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
+5. **Filter and sort** — Oldest first, skip if already worked recently
+6. **Process each issue**:
    - Simple → take action directly
    - Complex → make plan, present to reporter, wait for input if needed
    - Blocked → label `needs-input`, comment, skip
-6. **Report summary**
+7. **Report summary**
 
 ## Summary Output Format
 
