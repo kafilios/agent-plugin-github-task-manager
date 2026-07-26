@@ -108,6 +108,38 @@ MAIN_TREE=$(git worktree list --porcelain | grep -m1 "^worktree " | sed 's/^work
 
 From the main tree, you can run `git worktree list` to see all worktrees and perform operations.
 
+### Step 0b: Check for Existing PR
+
+Before creating a new worktree, always check if a PR already exists for this issue to avoid duplicates:
+```bash
+# Check GitHub for an open or closed PR referencing this issue
+EXISTING_PR=$(gh pr list --repo "$OWNER/$REPO" --state all --json number,title,headRefName --jq '.[] | select(.title | contains("#$NUMBER"))')
+if [ -n "$EXISTING_PR" ]; then
+  PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
+  PR_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
+  echo "Found existing PR #$PR_NUMBER ($PR_BRANCH)"
+  # Check if the branch exists locally as a worktree
+  if git worktree list | grep -q "complete-tasks-issue-$NUMBER"; then
+    echo "Worktree already exists at .git/worktrees/complete-tasks-issue-$NUMBER"
+    cd .git/worktrees/complete-tasks-issue-$NUMBER
+    git checkout "$PR_BRANCH"
+  elif git branch -r | grep -q "origin/$PR_BRANCH"; then
+    # Branch exists remotely but no local worktree — reuse it
+    echo "Reusing remote branch $PR_BRANCH"
+    git worktree add .git/worktrees/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"
+    cd .git/worktrees/complete-tasks-issue-$NUMBER
+  else
+    echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
+    exit 0
+  fi
+  # Skip to Step 2 with existing branch
+else
+  echo "No existing PR found — proceeding to create worktree"
+fi
+```
+
+If a PR was found and reused, skip the worktree creation and go directly to Step 2 (Make Changes).
+
 ### Step 1: Create a Worktree
 
 Create a new worktree with a dedicated branch for the issue:
@@ -133,7 +165,15 @@ git commit -m "Fix: $TITLE
 Closes #$NUMBER
 
 Co-Authored-By: Claude <noreply@anthropic.com>"
-git push -u origin issue/$NUMBER-$short-description
+
+# Rebase onto latest main to avoid merge conflicts from other merged PRs
+git fetch origin main
+git rebase origin/main
+# If there are merge conflicts: resolve them, then:
+# git rebase --continue
+
+# Push with force-with-lease (safer than --force)
+git push --force-with-lease origin issue/$NUMBER-$short-description
 ```
 
 ### Step 4: Create PR
