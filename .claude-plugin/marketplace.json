@@ -17,7 +17,7 @@
       },
       "source": "./plugins/github-task-manager",
       "category": "productivity",
-      "homepage": "https://github.com/kafilios/agent-skill-github-task-manager"
+      "homepage": "https://github.com/kafilios/agent-plugin-github-task-manager"
     }
   ]
 }
