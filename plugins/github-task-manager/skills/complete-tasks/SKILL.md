@@ -110,23 +110,34 @@ From the main tree, you can run `git worktree list` to see all worktrees and per
 
 ### Step 0b: Check for Existing PR
 
-Before creating a new worktree, always check if a PR already exists for this issue to avoid duplicates:
+Before creating a new worktree, always check if a PR already exists for this issue to avoid duplicates. Match by **head-branch name** (the `issue/$NUMBER-*` pattern) — title substrings false-match (e.g. `#12` inside `#123`):
 ```bash
-# Check GitHub for an open or closed PR referencing this issue
-EXISTING_PR=$(gh pr list --repo "$OWNER/$REPO" --state all --json number,title,headRefName --jq '.[] | select(.title | contains("#$NUMBER"))')
-if [ -n "$EXISTING_PR" ]; then
+# Match by head-ref pattern: issue/$NUMBER-*
+EXISTING_PR=$(gh pr list --repo "$OWNER/$REPO" --state all --json number,headRefName \
+  --jq "[.[] | select(.headRefName | startswith(\"issue/$NUMBER-\"))] | .[0] // empty")
+if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
   PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
   PR_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
   echo "Found existing PR #$PR_NUMBER ($PR_BRANCH)"
   # Check if the branch exists locally as a worktree
   if git worktree list | grep -q "complete-tasks-issue-$NUMBER"; then
+    # Verify the worktree is clean before reusing — refuse if it has uncommitted changes
+    if [ -n "$(git -C .git/worktrees/complete-tasks-issue-$NUMBER status --porcelain)" ]; then
+      echo "Existing worktree for issue $NUMBER has uncommitted changes — skipping this issue"
+      exit 0
+    fi
     echo "Worktree already exists at .git/worktrees/complete-tasks-issue-$NUMBER"
     cd .git/worktrees/complete-tasks-issue-$NUMBER
     git checkout "$PR_BRANCH"
   elif git branch -r | grep -q "origin/$PR_BRANCH"; then
     # Branch exists remotely but no local worktree — reuse it
+    # Wrap in a re-check: a parallel run could delete the remote branch between the
+    # existence check above and the worktree add below.
     echo "Reusing remote branch $PR_BRANCH"
-    git worktree add .git/worktrees/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"
+    if ! git worktree add .git/worktrees/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"; then
+      echo "PR #$PR_NUMBER exists but branch $PR_BRANCH could not be checked out — skipping this issue"
+      exit 0
+    fi
     cd .git/worktrees/complete-tasks-issue-$NUMBER
   else
     echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
@@ -160,17 +171,30 @@ Make all necessary code changes in the worktree directory.
 
 ```bash
 git add -A
+# Use the configured git identity if available, so the commit author matches the user's expectation.
+# GitHub rejects pushes that expose a private email — fall back to the noreply form.
+USER_NAME=$(git config user.name || echo "Claude")
+USER_EMAIL=$(git config user.email || echo "")
+if [ -z "$USER_EMAIL" ] || echo "$USER_EMAIL" | grep -q "@users.noreply.github.com\|@anthropic.com"; then
+  CO_AUTHOR_EMAIL="$USER_EMAIL"
+  [ -z "$CO_AUTHOR_EMAIL" ] && CO_AUTHOR_EMAIL="noreply@anthropic.com"
+else
+  CO_AUTHOR_EMAIL="$USER_EMAIL"
+fi
+
 git commit -m "Fix: $TITLE
 
 Closes #$NUMBER
 
-Co-Authored-By: Claude <noreply@anthropic.com>"
+Co-Authored-By: $USER_NAME <$CO_AUTHOR_EMAIL>"
 
 # Rebase onto latest main to avoid merge conflicts from other merged PRs
 git fetch origin main
 git rebase origin/main
 # If there are merge conflicts: resolve them, then:
 # git rebase --continue
+# If you need to abandon the rebase entirely: git rebase --abort
+# If the worktree is left in a rebasing state from a prior failure, run `git rebase --abort` before retrying.
 
 # Push with force-with-lease (safer than --force)
 git push --force-with-lease origin issue/$NUMBER-$short-description
@@ -193,16 +217,18 @@ gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
 
 ### Step 5: Update Issue
 
-Add a comment to the issue with the PR link and mark it as `needs-input` to prevent reprocessing:
+Add a comment to the issue with the PR link so the reporter can review and merge. Do **not** apply `needs-input` here — that label means "blocked on user input," and an issue with an active PR is the opposite (work has been delivered):
 ```bash
 gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --repo "$OWNER/$REPO"
-gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 ```
+
+The issue will be filtered out of future runs by the existing-PR check in Step 0b.
 
 ### Cleanup Worktrees
 
-After creating the PR, you can remove the worktree:
+After creating the PR, you can remove the worktree. First make sure the session isn't inside the worktree being removed (otherwise `git worktree remove` will fail or leave the session in an invalid state):
 ```bash
+cd "$MAIN_TREE"
 git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER
 ```
 
@@ -216,8 +242,9 @@ git fetch --prune origin
 git worktree list
 ```
 
-For each worktree under `complete-tasks-issue-*` whose branch has been merged and deleted from remote:
+For each worktree under `complete-tasks-issue-*` whose branch has been merged and deleted from remote, cd back to the main tree first (to avoid removing a worktree you're inside) and then remove:
 ```bash
+cd "$MAIN_TREE"
 git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER --force
 ```
 
@@ -258,6 +285,10 @@ The `gh` CLI handles rate limits automatically. If you encounter errors:
 
 ## Workflow for "Complete all issues assigned to you"
 
+0. **Verify session is on `main`** — this skill expects to run from the main working tree on the `main` branch. If not, stop and tell the user: "Please switch to the main branch (or run from the main checkout) before invoking this skill."
+   ```bash
+   git rev-parse --abbrev-ref HEAD
+   ```
 1. **Sync main tree** — Pull the latest `main` branch into the main working tree:
    ```bash
    git fetch origin main
