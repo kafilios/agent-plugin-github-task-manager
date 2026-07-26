@@ -6,13 +6,21 @@ This repository is the distribution source for the `github-task-manager` Claude 
 
 ## Skills
 
-- Skills live in `.claude/skills/<skill-name>/SKILL.md`
-- This repo is the distribution source for the `github-task-manager` skill
+- Skills live in `plugins/github-task-manager/skills/<skill-name>/SKILL.md`
+- This repo is the distribution source for the `github-task-manager` plugin
 
 ## Skill Development
 
 - Test skill prompts in `/tmp/<skill-name>-workspace/iteration-N/`
 - Use `git remote -v` to re-derive repo context per invocation
+
+## Plugin Distribution
+
+- Plugin lives at `plugins/<name>/.claude-plugin/plugin.json` + `plugins/<name>/skills/`
+- Marketplace catalog at `.claude-plugin/marketplace.json` (lists each plugin with `source: "./plugins/<name>"`)
+- `.claude/settings.json` (gitignored) declares a `directory` source at `.` and enables the plugin; `/reload-plugins` picks up uncommitted edits — no commit/push needed for local dev
+- For published distribution, swap the `directory` source for `git` (URL or `github` repo)
+- Plugins are not auto-enabled by being declared in a marketplace; `enabledPlugins: true` is required
 
 ## GitHub Integration
 
