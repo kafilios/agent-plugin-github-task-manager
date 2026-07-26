@@ -3,3 +3,4 @@
 .claude/settings.local.*
 .claude/.credentials.json
 .claude/local/
+.DS_Store
