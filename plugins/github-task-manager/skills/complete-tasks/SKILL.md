@@ -38,6 +38,15 @@ Determine the username of the authenticated user:
 gh api user --jq .login
 ```
 
+## Label Setup
+
+Before any other GitHub operations, ensure the `needs-input` label exists:
+```bash
+gh label view needs-input --repo "$OWNER/$REPO" 2>/dev/null || gh label create needs-input --repo "$OWNER/$REPO" --color "#FFA500" --description "Issue is blocked and needs user input to proceed"
+```
+
+If the label already exists this is a no-op. Do this first — every subsequent operation depends on this label being present.
+
 ## Cleanup Pass
 
 Before processing issues, check for orphaned `needs-input` labels on closed issues and remove them:
