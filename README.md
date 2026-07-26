@@ -59,7 +59,7 @@ To publish the plugin for others to install via a marketplace, replace the
     "github-task-manager": {
       "source": {
         "source": "git",
-        "url": "https://github.com/kafilios/agent-skill-github-task-manager.git"
+        "url": "https://github.com/kafilios/agent-plugin-github-task-manager.git"
       }
     }
   }
