@@ -1,6 +1,6 @@
 # github-task-manager
 
-A Claude Code skill for managing tasks via GitHub issues in the current repository.
+A Claude Code plugin for managing tasks via GitHub issues in the current repository.
 
 ## What It Does
 
@@ -10,40 +10,54 @@ A Claude Code skill for managing tasks via GitHub issues in the current reposito
 - Uses `needs-input` labels to mark issues blocked on your response
 - Cleans up orphaned `needs-input` labels from closed issues
 
-## Installation
+## Plugin Structure
 
-Copy the skill into your Claude Code skills directory:
-
-```bash
-cp -r .claude/skills/github-task-manager ~/.claude/skills/
+```
+github-task-manager/
+├── .claude-plugin/
+│   └── plugin.json     # Plugin manifest
+├── skills/
+│   └── github-task-manager/
+│       └── SKILL.md    # The skill definition
+└── README.md
 ```
 
-Or reference this repository's `.claude/skills/` path in your Claude Code configuration.
+## Installation
+
+Install the plugin by referencing this repository:
+
+```bash
+/plugin install github-task-manager@<path-to-repo>
+```
+
+Or for local development:
+
+```bash
+cc --plugin-dir /path/to/github-task-manager
+```
 
 ## Usage
 
-Trigger phrases:
+Use the skill directly:
 
+```
+/github-task-manager
+```
+
+Trigger phrases:
 - "Please complete all the outstanding tasks in the GitHub issues for this repository."
 - "What's the current status of all open issues?"
-- "Create a new issue for me: [title]"
+- "Work on your assigned issues"
 
 ## Requirements
 
-- `GITHUB_TOKEN` environment variable (GitHub Personal Access Token)
-- `curl` and `jq` for API calls
+- `gh` CLI installed and authenticated
+- GitHub authentication via `gh auth login`
 
 ## Workflow
 
-1. Claude fetches all open issues from the repo
+1. Claude fetches all open issues assigned to the current user from the repo
 2. Cleans up any `needs-input` labels on closed issues
 3. Processes each issue in order (oldest first)
-4. Adds progress comments and proposes solutions
+4. Adds progress comments and proposes solutions via PRs
 5. Reports a summary when done
-
-## Skill Structure
-
-```
-.claude/skills/github-task-manager/
-└── SKILL.md   # The skill definition
-```
