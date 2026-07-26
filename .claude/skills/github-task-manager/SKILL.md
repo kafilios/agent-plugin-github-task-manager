@@ -7,6 +7,13 @@ description: Manage and complete tasks tracked in GitHub issues for the current 
 
 This skill manages task delegation via GitHub issues in the repository where the session is running.
 
+## Invocation
+
+This skill is triggered by requests like:
+- "Please complete all issues assigned to you in this repo"
+- "Work on your assigned issues"
+- "Check and complete issues assigned to me"
+
 ## Repository Resolution
 
 Every invocation, re-derive the repository from the local git remote:
@@ -17,83 +24,84 @@ Parse the HTTPS URL to extract `owner/repo`. The local git config is the source 
 
 ## Authentication
 
-Use the GitHub REST API (not `gh` CLI). Authentication via:
-- Environment variable: `GITHUB_TOKEN` (recommended — set in shell profile or Claude settings)
-- If not set, prompt the user with: "I need a GitHub token to interact with issues. Please set `GITHUB_TOKEN` in your environment or provide one now."
-
-Base URL: `https://api.github.com`
-
-## Core Behavior
-
-### Issue Retrieval
-
-Fetch open issues from the repository using the issues endpoint:
-```
-GET /repos/{owner}/{repo}/issues?state=open&sort=created&direction=asc
-```
-
-Filter out pull requests — issues have `pull_request: null`:
+Use the GitHub CLI (`gh`). Verify authentication:
 ```bash
-curl -s -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/$OWNER/$REPO/issues?state=open&sort=created&direction=asc" \
-  | jq '[.[] | select(.pull_request == null)]'
+gh auth status
 ```
 
-### Cleanup
+If `gh` is not authenticated, stop and inform the user: "I don't have access to GitHub. Please ensure `gh` is authenticated with `gh auth login`."
 
-Before processing issues, also check for orphaned `needs-input` labels on closed issues. Fetch all closed issues with the `needs-input` label and remove it:
-```
-GET /repos/{owner}/{repo}/issues?state=closed&labels=needs-input
-```
+## Identifying the Current User
 
-For each closed issue that still has the label, remove it:
+Determine the username of the authenticated user:
 ```bash
-curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/$OWNER/$REPO/issues/$NUMBER/labels/needs-input"
+gh api user --jq .login
+```
+
+## Cleanup Pass
+
+Before processing issues, check for orphaned `needs-input` labels on closed issues and remove them:
+```bash
+gh issue list --state closed --label needs-input --repo "$OWNER/$REPO" --json number,title
+```
+
+For each closed issue with `needs-input`, remove the label:
+```bash
+gh issue edit $NUMBER --remove-label needs-input --repo "$OWNER/$REPO"
 ```
 
 This is a maintenance task — don't announce it unless you find and fix something.
 
-### Issue Processing
+## Fetching Assigned Issues
 
-For each open issue, determine:
-- **Actionable**: You have enough context to make progress. Proceed.
-- **Blocked**: Needs user input or clarification. Label it and skip. Use a consistent label like `needs-input` so the user can find all blocked issues at once.
-- **In Progress**: You've started working on it. Update the issue body or add a comment to track this.
+Fetch only issues assigned to the current user that are **open** and do not have the `needs-input` label:
+```bash
+gh issue list --assignee "@me" --state open --repo "$OWNER/$REPO" --json number,title,labels,body,assignees
+```
+
+Filter locally to exclude issues with `needs-input` label.
+
+## Issue Triage
+
+For each assigned issue, determine:
+- **Actionable (Simple)**: You have enough context and the issue is straightforward. Proceed directly.
+- **Actionable (Complex)**: The issue requires significant work or multiple steps. Make a plan first, then work through it.
+- **Blocked**: Needs user input or clarification. Label it `needs-input` and skip. Add a comment explaining what's needed.
+
+### Labeling Blocked Issues
+
+```bash
+gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
+gh issue comment $NUMBER --body "I'm blocked on this issue and need your input: [explain what information or decision is needed]" --repo "$OWNER/$REPO"
+```
+
+## Processing Simple Issues
+
+For issues you can resolve directly:
+1. Add a comment: "I'm working on this issue now."
+2. Take action (make changes, create files, etc.)
+3. Add a comment summarizing what was done
+4. Remove `needs-input` label if present
+
+## Processing Complex Issues
+
+For issues requiring a plan:
+1. Add a comment: "I'm analyzing this issue and will provide a plan shortly."
+2. Create a plan for addressing the issue
+3. Present the plan as a comment on the issue for the reporter to review
+4. Wait for their feedback or approval before proceeding
+5. If they approve, execute the plan and report back
+
+If the reporter doesn't respond or the issue needs their input to proceed:
+1. Label the issue `needs-input`
+2. Comment explaining what's needed
+3. Skip and move to the next issue
+
+## Never Close Issues
 
 **Never close issues.** The user remains solely responsible for closing. Your job is to propose solutions, provide updates, and advance work.
 
-### Label Conventions
-
-Pick a clear, consistent label for blocked issues. For example:
-- `needs-input` — issue is waiting for user response
-
-Apply it when you need clarification:
-```bash
-curl -s -X POST -H "Authorization: token $GITHUB_TOKEN" \
-  -d '{"labels":["needs-input"]}' \
-  "https://api.github.com/repos/$OWNER/$REPO/issues/$NUMBER/labels"
-```
-
-Remove it when you receive input:
-```bash
-curl -s -X DELETE -H "Authorization: token $GITHUB_TOKEN" \
-  "https://api.github.com/repos/$OWNER/$REPO/issues/$NUMBER/labels/needs-input"
-```
-
-### Creating Issues
-
-When the user asks to create an issue, follow this workflow as if they created it themselves:
-- Set appropriate labels
-- Use a consistent title format (imperative mood: "Add feature X" not "Adding feature X")
-- Include all context the user provided
-- Return the issue URL so they can view it
-
-```
-POST /repos/{owner}/{repo}/issues
-```
-
-### Progress Tracking
+## Progress Tracking
 
 When you start work on an issue, add a comment:
 ```
@@ -102,28 +110,23 @@ I'm looking into this issue and will provide an update shortly.
 
 When you have a solution or finding, add a comment with your proposed approach. If the work is complex, periodically update with progress comments so the user can see what you've tried.
 
-### Completing Issues (No Closing)
+## API Rate Limits
 
-Since you won't close issues, when you've completed your work on an issue:
-1. Add a comment summarizing what you did
-2. Remove the `needs-input` label if present
-3. The user will review and close when satisfied
+The `gh` CLI handles rate limits automatically. If you encounter errors:
+- Wait and retry for transient issues
+- Report persistent failures to the user
 
-### API Rate Limits
+## Workflow for "Complete all issues assigned to you"
 
-GitHub API allows 5,000 requests/hour authenticated. Batch operations where possible:
-- Fetch all open issues in one call, then process locally
-- Use `jq` for filtering instead of multiple API calls
-- If you hit rate limits, wait and retry with `Retry-After` header guidance
-
-## Workflow for "Complete all outstanding tasks"
-
-1. **Cleanup pass** — Check for orphaned `needs-input` labels on closed issues and remove them
-2. Fetch all open issues
-3. Filter out PRs and already-processed issues (check for recent comments from you)
-4. For each actionable issue, work through them in order (oldest first)
-5. Add progress comments to each issue
-6. Report a summary to the user when done
+1. **Verify access** — Run `gh auth status` and stop if not authenticated
+2. **Cleanup pass** — Remove `needs-input` from closed issues
+3. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
+4. **Filter and sort** — Oldest first, skip if already worked recently
+5. **Process each issue**:
+   - Simple → take action directly
+   - Complex → make plan, present to reporter, wait for input if needed
+   - Blocked → label `needs-input`, comment, skip
+6. **Report summary**
 
 ## Summary Output Format
 
@@ -132,12 +135,15 @@ After completing (or partially completing) issues, report:
 ```
 ## GitHub Task Summary
 
+User: @username
+Repository: owner/repo
+
 Cleanup: removed needs-input from N closed issue(s) (if any)
 Processed N issue(s):
 
 | # | Title | Status | Notes |
 |---|-------|--------|-------|
-| 1 | Issue title | Done / Blocked / In Progress | Notes |
+| 1 | Issue title | Done / Blocked / Plan Pending | Notes |
 
 Issues needing your input: [list with links]
 Issues advanced but not closed: [list with links]
