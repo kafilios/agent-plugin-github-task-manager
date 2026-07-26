@@ -222,6 +222,76 @@ gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --re
 gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 ```
 
+### Step 6: Address PR Review Feedback
+
+When a reviewer requests changes, the feedback can come in two forms — and both must be checked and addressed:
+
+1. **Whole-PR review comments** — the top-level body of a submitted review (`CHANGES_REQUESTED`, `COMMENTED`, or `APPROVED` state).
+2. **Inline file comments** — review comments attached to a specific file and line.
+
+Both can exist in the same review. Checking only one and missing the other is a common cause of "you didn't address my feedback" follow-ups.
+
+#### Step 6a: Fetch all review feedback
+
+```bash
+# Submitter name and PR number from earlier steps
+PR_NUMBER=...  # from Step 4
+
+# Whole-PR review comments: each review's body, state, and submitter
+gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/reviews" \
+  --jq '.[] | {user: .user.login, state: .state, body: .body, id: .id}'
+
+# Inline file comments: each line-anchored review comment
+gh api "repos/$OWNER/$REPO/pulls/$PR_NUMBER/comments" \
+  --jq '.[] | {path: .path, line: .line, body: .body, user: .user.login, id: .id}'
+
+# Conversation comments (non-review issue-style comments on the PR)
+gh api "repos/$OWNER/$REPO/issues/$PR_NUMBER/comments" \
+  --jq '.[] | {user: .user.login, body: .body, id: .id}'
+```
+
+Collect all three lists. The PR is "clean" only when all three are empty of actionable items (i.e. no `CHANGES_REQUESTED` review, no unresolved inline comments, no open conversation comments).
+
+Note: `gh pr view --comments` shows whole-PR and conversation comments but **not** inline review comments. The `gh api` calls above are required to get the full picture.
+
+#### Step 6b: Summarize and plan
+
+For each piece of feedback, write down:
+- **Source** (which review / which file/line)
+- **What is being asked** (the actual change requested)
+- **Whether it applies to this skill's scope** (some feedback is a project-level scope decision that needs human input — see Step 6d)
+
+If the same point is raised both as a whole-PR comment and as an inline comment, list it once with both pointers — don't double-count.
+
+#### Step 6c: Apply the changes
+
+For each actionable item, make the change in the worktree, then commit and push. One commit per logical change is usually right; if multiple comments are minor (typos, wording), batch them into a single `Address review feedback` commit.
+
+```bash
+git add -A
+git commit -m "Address PR review feedback
+
+$REVIEWER on PR #$PR_NUMBER:
+- [list each change with its source — whole-PR or file:line]
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+git push --force-with-lease origin issue/$NUMBER-$short-description
+```
+
+After pushing, re-request review:
+```bash
+gh pr ready "$PR_NUMBER" --repo "$OWNER/$REPO"  # in case it was marked draft
+```
+
+#### Step 6d: When feedback is out of scope
+
+If a reviewer asks for a project-level decision (rename the repo, change release policy, choose a different framework), do not silently apply it. Comment on the PR explaining the scope boundary, then add `needs-input` to the issue and stop. The user is the only one who can make that call.
+
+#### Step 6e: Repeat until clean
+
+Reviews can stack: addressing one round of feedback may prompt another. Loop back to Step 6a after each push. Stop when there are no `CHANGES_REQUESTED` reviews and no open inline or conversation comments. Once clean, report the final state in the summary.
+
 ### Cleanup Worktrees
 
 After creating the PR, you can remove the worktree. First make sure the session isn't inside the worktree being removed (otherwise `git worktree remove` will fail or leave the session in an invalid state):
