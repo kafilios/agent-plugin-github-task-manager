@@ -91,16 +91,16 @@ For issues you can resolve directly:
 
 ### Step 1: Create a Worktree
 
-Create a new worktree with a dedicated branch for the issue:
+Create a new worktree with a dedicated branch for the issue. Worktrees are created inside the `.git` directory:
 ```bash
 cd /workspaces/agent-skill-github-task-manager-5a7eadc2
 git fetch origin main
-git worktree add ../github-task-manager-issue-$NUMBER origin/main
-cd ../github-task-manager-issue-$NUMBER
+git worktree add .git/worktrees/github-task-manager-issue-$NUMBER origin/main
+cd .git/worktrees/github-task-manager-issue-$NUMBER
 git checkout -b issue/$NUMBER-$short-description
 ```
 
-Worktrees are created under `../github-task-manager-issue-$NUMBER` relative to the repo root.
+Worktrees are created under `.git/worktrees/github-task-manager-issue-$NUMBER`.
 
 ### Step 2: Make Changes
 
@@ -135,9 +135,10 @@ gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
 
 ### Step 5: Update Issue
 
-Add a comment to the issue with the PR link:
+Add a comment to the issue with the PR link and mark it as `needs-input` to prevent reprocessing:
 ```bash
 gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --repo "$OWNER/$REPO"
+gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 ```
 
 ### Cleanup Worktrees
@@ -145,10 +146,10 @@ gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --re
 After creating the PR, you can remove the worktree:
 ```bash
 cd /workspaces/agent-skill-github-task-manager-5a7eadc2
-git worktree remove ../github-task-manager-issue-$NUMBER
+git worktree remove .git/worktrees/github-task-manager-issue-$NUMBER
 ```
 
-**Note:** Worktrees created by this skill are stored under `../github-task-manager-issue-*` relative to the repo root, so they won't conflict with other worktrees you may have.
+**Note:** Worktrees created by this skill are stored under `.git/worktrees/github-task-manager-issue-*` inside the repo.
 
 ## Processing Complex Issues
 
