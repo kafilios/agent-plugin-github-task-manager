@@ -38,6 +38,16 @@ Determine the username of the authenticated user:
 gh api user --jq .login
 ```
 
+## Ensure Required Labels
+
+Before processing, verify that the `needs-input` label exists in the repository. If it does not exist, create it:
+```bash
+gh label list --repo "$OWNER/$REPO" --json name --jq '.[].name' | grep -q needs-input || \
+  gh label create needs-input --description "Indicates an issue is blocked and needs input from the user" --repo "$OWNER/$REPO"
+```
+
+This ensures all subsequent label operations succeed without errors.
+
 ## Cleanup Pass
 
 Before processing issues, check for orphaned `needs-input` labels on closed issues and remove them:
@@ -187,7 +197,8 @@ The `gh` CLI handles rate limits automatically. If you encounter errors:
 ## Workflow for "Complete all issues assigned to you"
 
 1. **Verify access** — Run `gh auth status` and stop if not authenticated
-2. **Cleanup pass** — Remove `needs-input` from closed issues
+2. **Ensure labels** — Create `needs-input` label if it doesn't exist
+3. **Cleanup pass** — Remove `needs-input` from closed issues
 3. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
 4. **Filter and sort** — Oldest first, skip if already worked recently
 5. **Process each issue**:
