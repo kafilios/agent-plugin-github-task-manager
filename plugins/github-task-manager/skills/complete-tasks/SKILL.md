@@ -171,22 +171,21 @@ Make all necessary code changes in the worktree directory.
 
 ```bash
 git add -A
-# Use the configured git identity if available, so the commit author matches the user's expectation.
-# GitHub rejects pushes that expose a private email — fall back to the noreply form.
-USER_NAME=$(git config user.name || echo "Claude")
-USER_EMAIL=$(git config user.email || echo "")
-if [ -z "$USER_EMAIL" ] || echo "$USER_EMAIL" | grep -q "@users.noreply.github.com\|@anthropic.com"; then
-  CO_AUTHOR_EMAIL="$USER_EMAIL"
-  [ -z "$CO_AUTHOR_EMAIL" ] && CO_AUTHOR_EMAIL="noreply@anthropic.com"
-else
-  CO_AUTHOR_EMAIL="$USER_EMAIL"
+# Author identity comes from the environment (GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL or
+# the system GIT_COMMITTER_* env vars). Do NOT read git config user.name/user.email —
+# those reflect the user's local setup, not the identity they want attributed to a
+# commit made on their behalf by this skill. If the env vars are unset, stop and ask
+# the user to set them rather than guessing.
+if [ -z "$GIT_AUTHOR_NAME" ] || [ -z "$GIT_AUTHOR_EMAIL" ]; then
+  echo "GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL must be set before committing. Aborting."
+  exit 1
 fi
 
 git commit -m "Fix: $TITLE
 
 Closes #$NUMBER
 
-Co-Authored-By: $USER_NAME <$CO_AUTHOR_EMAIL>"
+Co-Authored-By: Claude <noreply@anthropic.com>"
 
 # Rebase onto latest main to avoid merge conflicts from other merged PRs
 git fetch origin main
@@ -217,12 +216,11 @@ gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
 
 ### Step 5: Update Issue
 
-Add a comment to the issue with the PR link so the reporter can review and merge. Do **not** apply `needs-input` here — that label means "blocked on user input," and an issue with an active PR is the opposite (work has been delivered):
+Add a comment to the issue with the PR link so the reporter can review and merge. Apply `needs-input` here: even though the PR exists, the work still requires the reporter to review and approve before the issue can move forward, so it is technically blocked on user input. The cleanup pass will strip the label once the issue is closed:
 ```bash
 gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --repo "$OWNER/$REPO"
+gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 ```
-
-The issue will be filtered out of future runs by the existing-PR check in Step 0b.
 
 ### Cleanup Worktrees
 
