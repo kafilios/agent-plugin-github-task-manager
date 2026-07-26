@@ -17,8 +17,14 @@ This repository is the distribution source for the `github-task-manager` Claude 
 ## GitHub Integration
 
 - Use `git remote -v` to derive `owner/repo` for GitHub API calls
-- Use `curl` + GitHub REST API — `gh` CLI is not available in this environment
+- Use `gh` CLI (available and authenticated in this environment)
 - Authentication via `GITHUB_TOKEN` environment variable
+
+## Git Commit Gotchas
+
+- Sandbox blocks git operations by default — use `dangerouslyDisableSandbox: true`
+- GitHub rejects pushes with private email addresses — use `users.noreply.github.com` format
+- `user.name`/`user.email` config overrides `GIT_AUTHOR_*` env vars
 
 ## github-task-manager Skill
 
