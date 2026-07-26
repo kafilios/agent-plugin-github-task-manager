@@ -266,12 +266,46 @@ The `gh` CLI handles rate limits automatically. If you encounter errors:
 2. **Verify access** — Run `gh auth status` and stop if not authenticated
 3. **Cleanup pass** — Remove `needs-input` from closed issues
 4. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
-5. **Filter and sort** — Oldest first, skip if already worked recently
-6. **Process each issue**:
+5. **Plan the sequence** — Do not process issues in FIFO or LIFO order. Review the full set as a batch and decide the best execution order. See [Planning the Sequence](#planning-the-sequence) below.
+6. **Process each issue in the planned order**:
    - Simple → take action directly
    - Complex → make plan, present to reporter, wait for input if needed
    - Blocked → label `needs-input`, comment, skip
-7. **Report summary**
+7. **Report summary** including the planned sequence and the rationale for the chosen order
+
+## Planning the Sequence
+
+After fetching the assigned issues, pause before writing any code. Review the entire batch as a single unit and decide the order to execute them in. FIFO (oldest first) and LIFO (newest first) are both wrong defaults — they ignore the actual relationships between issues.
+
+For each issue, gather at minimum:
+- **Title and body** — what the work actually is
+- **Scope** — single file/area vs. cross-cutting refactor
+- **Dependencies** — does this issue reference other issues, branches, or PRs? Does it block or get blocked by another?
+- **Open PRs** — is there already an in-flight PR for this issue? If so, prefer advancing that PR over starting new work.
+- **Risk** — does it touch shared infrastructure, security-sensitive code, or release-blocking paths?
+- **Complexity** — does it require a multi-step plan or expert review before code is written?
+
+Then choose an order. Heuristics, in order of priority:
+
+1. **Pick up where another PR left off** — if an existing PR for an issue already has reviewer feedback, address that first. Stale PRs are the highest-priority in-flight work.
+2. **Unblock others first** — if issue A blocks issue B, do A first (and surface the dependency in the plan).
+3. **Foundational before dependent** — refactors or shared infrastructure changes that other issues rely on go before the consumers.
+4. **Small, low-risk wins first** — fast, isolated, well-understood issues can be resolved quickly and reduce noise. Use this to chip away at the queue when nothing else dictates order.
+5. **High-risk last** — changes that touch many files or carry merge-conflict risk should run after the smaller ones, so rebase interaction is minimized.
+6. **Group by area** — issues that touch the same module or file are best done together, so the second one benefits from the first's worktree state and the diff stays coherent.
+
+State the planned sequence with one-line reasoning per issue **before** you start any work. Example:
+
+```
+Planned sequence:
+1. #14 (PR has reviewer feedback — address first)
+2. #11 (foundational, unblocks #12)
+3. #9 (small, isolated)
+4. #8 (touching the same area as #9, do together)
+5. #5 (cross-cutting, run last to minimize rebase churn)
+```
+
+The order is a plan, not a contract. If partway through you discover an issue is more complex than it looked, or a dependency resolves itself, re-plan the remainder and note the change in the final summary.
 
 ## Summary Output Format
 
@@ -284,6 +318,12 @@ User: @username
 Repository: owner/repo
 
 Cleanup: removed needs-input from N closed issue(s) (if any)
+
+Planned sequence (and rationale):
+1. #14 — PR has reviewer feedback, address first
+2. #11 — foundational, unblocks #12
+3. #9 — small, isolated
+
 Processed N issue(s):
 
 | # | Title | Status | Notes |
@@ -293,3 +333,5 @@ Processed N issue(s):
 Issues needing your input: [list with links]
 Issues advanced but not closed: [list with links]
 ```
+
+If the order changed mid-run, call that out explicitly.
