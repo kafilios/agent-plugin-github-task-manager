@@ -1,5 +1,5 @@
 ---
-name: github-task-manager
+name: complete-tasks
 description: Manage and complete tasks tracked in GitHub issues for the current repository. Use this skill whenever the user asks you to complete outstanding GitHub issues, create new issues, or provide updates on issue progress. This skill is the primary interface for task delegation — any request involving GitHub issues in the current repository should trigger this skill. Make sure to use this skill proactively when the user mentions completing issues, checking progress, or working on tracked tasks.
 ---
 
@@ -95,12 +95,12 @@ Create a new worktree with a dedicated branch for the issue. Worktrees are creat
 ```bash
 cd /workspaces/agent-skill-github-task-manager-5a7eadc2
 git fetch origin main
-git worktree add .git/worktrees/github-task-manager-issue-$NUMBER origin/main
-cd .git/worktrees/github-task-manager-issue-$NUMBER
+git worktree add .git/worktrees/complete-tasks-issue-$NUMBER origin/main
+cd .git/worktrees/complete-tasks-issue-$NUMBER
 git checkout -b issue/$NUMBER-$short-description
 ```
 
-Worktrees are created under `.git/worktrees/github-task-manager-issue-$NUMBER`.
+Worktrees are created under `.git/worktrees/complete-tasks-issue-$NUMBER`.
 
 ### Step 2: Make Changes
 
@@ -146,10 +146,10 @@ gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
 After creating the PR, you can remove the worktree:
 ```bash
 cd /workspaces/agent-skill-github-task-manager-5a7eadc2
-git worktree remove .git/worktrees/github-task-manager-issue-$NUMBER
+git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER
 ```
 
-**Note:** Worktrees created by this skill are stored under `.git/worktrees/github-task-manager-issue-*` inside the repo.
+**Note:** Worktrees created by this skill are stored under `.git/worktrees/complete-tasks-issue-*` inside the repo.
 
 ## Processing Complex Issues
 

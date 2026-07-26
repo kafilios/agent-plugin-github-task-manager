@@ -17,7 +17,7 @@ github-task-manager/
 ├── .claude-plugin/
 │   └── plugin.json     # Plugin manifest
 ├── skills/
-│   └── github-task-manager/
+│   └── complete-tasks/
 │       └── SKILL.md    # The skill definition
 └── README.md
 ```
@@ -41,7 +41,7 @@ cc --plugin-dir /path/to/github-task-manager
 Use the skill directly:
 
 ```
-/github-task-manager
+/complete-tasks
 ```
 
 Trigger phrases:
