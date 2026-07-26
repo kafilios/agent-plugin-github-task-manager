@@ -79,9 +79,77 @@ gh issue comment $NUMBER --body "I'm blocked on this issue and need your input: 
 
 For issues you can resolve directly:
 1. Add a comment: "I'm working on this issue now."
-2. Take action (make changes, create files, etc.)
-3. Add a comment summarizing what was done
-4. Remove `needs-input` label if present
+2. Create a worktree for this issue (see below)
+3. Make the necessary changes in the worktree
+4. Push the branch and create a PR
+5. Add a comment summarizing what was done with a link to the PR
+6. Remove `needs-input` label if present
+
+## Making Changes: Worktree and PR Workflow
+
+**Never commit directly to `main` or make changes in the session's working directory.** Always use a dedicated worktree and PR workflow:
+
+### Step 1: Create a Worktree
+
+Create a new worktree with a dedicated branch for the issue. Worktrees are created inside the `.git` directory:
+```bash
+cd /workspaces/agent-skill-github-task-manager-5a7eadc2
+git fetch origin main
+git worktree add .git/worktrees/github-task-manager-issue-$NUMBER origin/main
+cd .git/worktrees/github-task-manager-issue-$NUMBER
+git checkout -b issue/$NUMBER-$short-description
+```
+
+Worktrees are created under `.git/worktrees/github-task-manager-issue-$NUMBER`.
+
+### Step 2: Make Changes
+
+Make all necessary code changes in the worktree directory.
+
+### Step 3: Commit and Push
+
+```bash
+git add -A
+git commit -m "Fix: $TITLE
+
+Closes #$NUMBER
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+git push -u origin issue/$NUMBER-$short-description
+```
+
+### Step 4: Create PR
+
+```bash
+gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
+
+## Summary
+[describe what was done]
+
+## Testing
+[describe how changes were tested]
+
+---
+🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+```
+
+### Step 5: Update Issue
+
+Add a comment to the issue with the PR link and mark it as `needs-input` to prevent reprocessing:
+```bash
+gh issue comment $NUMBER --body "I've created a PR for this issue: $PR_URL" --repo "$OWNER/$REPO"
+gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
+```
+
+### Cleanup Worktrees
+
+After creating the PR, you can remove the worktree:
+```bash
+cd /workspaces/agent-skill-github-task-manager-5a7eadc2
+git worktree remove .git/worktrees/github-task-manager-issue-$NUMBER
+```
+
+**Note:** Worktrees created by this skill are stored under `.git/worktrees/github-task-manager-issue-*` inside the repo.
 
 ## Processing Complex Issues
 
