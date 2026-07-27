@@ -116,15 +116,36 @@ From the main tree, you can run `git worktree list` to see all worktrees and per
 ### Step 0b: Check for Existing PR
 
 Before creating a new worktree, always check if a PR already exists for this issue to avoid duplicates. Match by **head-branch name** (the `issue/$NUMBER-*` pattern) — title substrings false-match (e.g. `#12` inside `#123`):
+
+Several races can produce duplicate branches/PRs:
+- A parallel run just created the PR but the local `gh` cache hasn't refreshed.
+- A branch was pushed locally but the PR hasn't been created yet.
+- A PR was just merged; its remote branch was deleted, but `gh pr list --state all` still returns it.
+
+To handle these, the check has three levels (remotely-tracked PR → locally-tracked branch → fresh worktree), each with a re-check at the moment of side effect:
+
 ```bash
-# Match by head-ref pattern: issue/$NUMBER-*
-EXISTING_PR=$(gh pr list --repo "$OWNER/$REPO" --state all --json number,headRefName \
+# Refresh remote refs so a branch pushed by a parallel run is visible locally.
+# Constrain to matching refs to keep the fetch cheap and predictable. The `+`
+# prefix is required for git to interpret the `*` as a refspec wildcard.
+git fetch origin "+refs/heads/issue/${NUMBER}-*:refs/remotes/origin/issue/${NUMBER}-*" 2>/dev/null || true
+
+# Match by head-ref pattern: issue/$NUMBER-*. Filter to OPEN PRs — a MERGED or
+# CLOSED PR is not something to "reuse"; the work is already done (merged) or
+# rejected (closed).
+EXISTING_PR=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,headRefName \
   --jq "[.[] | select(.headRefName | startswith(\"issue/$NUMBER-\"))] | .[0] // empty")
 if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
   PR_NUMBER=$(echo "$EXISTING_PR" | jq -r '.number')
   PR_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
   echo "Found existing PR #$PR_NUMBER ($PR_BRANCH)"
-  # Check if the branch exists locally as a worktree
+  # Re-check the PR is still open: a parallel run may have merged/closed it
+  # between the list call above and the worktree work below.
+  if [ "$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json state --jq .state)" != "OPEN" ]; then
+    echo "PR #$PR_NUMBER is no longer open — skipping this issue (treat as done)."
+    exit 0
+  fi
+  # Check if the branch is already attached as a worktree
   if git worktree list | grep -q "$WT_PATH"; then
     # Verify the worktree is clean before reusing — refuse if it has uncommitted changes
     if [ -n "$(git -C "$WT_PATH" status --porcelain)" ]; then
@@ -139,14 +160,47 @@ if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
     # Wrap in a re-check: a parallel run could delete the remote branch between the
     # existence check above and the worktree add below.
     echo "Reusing remote branch $PR_BRANCH"
+    # Re-verify the PR before any state mutation
+    if [ "$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json state --jq .state)" != "OPEN" ]; then
+      echo "PR #$PR_NUMBER was closed during reuse — skipping."
+      exit 0
+    fi
     if ! git worktree add "$WT_PATH" "origin/$PR_BRANCH"; then
       echo "PR #$PR_NUMBER exists but branch $PR_BRANCH could not be checked out — skipping this issue"
       exit 0
     fi
     cd "$WT_PATH"
+  elif git show-ref --verify --quiet "refs/heads/$PR_BRANCH"; then
+    # Branch exists locally only (a parallel run pushed it and created a PR but
+    # the remote ref hasn't propagated, or a prior session left it). Use it
+    # rather than creating a duplicate.
+    echo "Reusing local-only branch $PR_BRANCH"
+    if [ "$(gh pr view "$PR_NUMBER" --repo "$OWNER/$REPO" --json state --jq .state)" != "OPEN" ]; then
+      echo "PR #$PR_NUMBER was closed during reuse — skipping."
+      exit 0
+    fi
+    if ! git worktree add "$WT_PATH" "$PR_BRANCH"; then
+      echo "PR #$PR_NUMBER exists but local branch $PR_BRANCH could not be checked out — skipping this issue"
+      exit 0
+    fi
+    cd "$WT_PATH"
   else
-    echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
-    exit 0
+    # PR exists but no branch is visible anywhere — likely just-pushed by a
+    # parallel run that we haven't observed yet. Re-check more aggressively
+    # before declaring the branch gone.
+    sleep 2
+    git fetch origin "+refs/heads/issue/${NUMBER}-*:refs/remotes/origin/issue/${NUMBER}-*" 2>/dev/null || true
+    if git branch -r | grep -q "origin/$PR_BRANCH"; then
+      echo "Reusing remote branch $PR_BRANCH (after re-fetch)"
+      if ! git worktree add "$WT_PATH" "origin/$PR_BRANCH"; then
+        echo "PR #$PR_NUMBER exists but branch $PR_BRANCH could not be checked out — skipping this issue"
+        exit 0
+      fi
+      cd "$WT_PATH"
+    else
+      echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
+      exit 0
+    fi
   fi
   # Skip to Step 2 with existing branch
 else
@@ -201,6 +255,25 @@ git rebase origin/main
 # If you need to abandon the rebase entirely: git rebase --abort
 # If the worktree is left in a rebasing state from a prior failure, run `git rebase --abort` before retrying.
 
+# Final guard: re-check that no parallel run opened a competing PR on the
+# same branch name. If one appeared, switch to reusing it instead of pushing
+# our duplicate branch.
+git fetch origin "+refs/heads/issue/${NUMBER}-*:refs/remotes/origin/issue/${NUMBER}-*" 2>/dev/null || true
+COMPETING=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,headRefName \
+  --jq "[.[] | select(.headRefName == \"issue/$NUMBER-$short-description\")] | .[0] // empty")
+if [ -n "$COMPETING" ] && [ "$COMPETING" != "null" ]; then
+  COMPETING_PR=$(echo "$COMPETING" | jq -r '.number')
+  # If this is the same PR we already detected earlier (e.g. we reused it via Step 0b), proceed normally.
+  if [ -n "$PR_NUMBER" ] && [ "$COMPETING_PR" = "$PR_NUMBER" ]; then
+    : # fall through to push
+  else
+    echo "Parallel run opened PR #$COMPETING_PR on the same branch — switching to reuse it."
+    gh issue comment $NUMBER --body "A parallel run opened PR #$COMPETING_PR for this issue; reusing that branch instead of pushing a duplicate. See https://github.com/$OWNER/$REPO/pull/$COMPETING_PR" --repo "$OWNER/$REPO"
+    gh issue edit $NUMBER --add-label needs-input --repo "$OWNER/$REPO"
+    exit 0
+  fi
+fi
+
 # Push with force-with-lease (safer than --force)
 git push --force-with-lease origin issue/$NUMBER-$short-description
 ```
@@ -208,7 +281,16 @@ git push --force-with-lease origin issue/$NUMBER-$short-description
 ### Step 4: Create PR
 
 ```bash
-gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
+# Check whether a parallel run already created the PR between our push above
+# and now. If so, reuse it instead of attempting a duplicate create.
+EXISTING_NOW=$(gh pr list --repo "$OWNER/$REPO" --state open --json number,headRefName \
+  --jq "[.[] | select(.headRefName == \"issue/$NUMBER-$short-description\")] | .[0] // empty")
+if [ -n "$EXISTING_NOW" ] && [ "$EXISTING_NOW" != "null" ]; then
+  PR_NUMBER=$(echo "$EXISTING_NOW" | jq -r '.number')
+  PR_URL="https://github.com/$OWNER/$REPO/pull/$PR_NUMBER"
+  echo "PR #$PR_NUMBER was already created by a parallel run — reusing it."
+else
+  PR_URL=$(gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
 
 ## Summary
 [describe what was done]
@@ -217,7 +299,8 @@ gh pr create --repo "$OWNER/$REPO" --title "$TITLE" --body "Fixes #$NUMBER
 [describe how changes were tested]
 
 ---
-🤖 Generated with [Claude Code](https://claude.com/claude-code)"
+🤖 Generated with [Claude Code](https://claude.com/claude-code)")
+fi
 ```
 
 ### Step 5: Update Issue
