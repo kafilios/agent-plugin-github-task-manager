@@ -597,13 +597,14 @@ The `gh` CLI handles rate limits automatically. If you encounter errors:
    ```
 2. **Verify access** — Run `gh auth status` and stop if not authenticated
 3. **Cleanup pass** — Remove `needs-input` from closed issues
-4. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
-5. **Plan the sequence** — Do not process issues in FIFO or LIFO order. Review the full set as a batch and decide the best execution order. See [Planning the Sequence](#planning-the-sequence) below.
-6. **Process each issue in the planned order**:
+4. **Read Implementation Notes** — Before planning, read `IMPLEMENTATION_NOTES.md` at the repo root to surface prior hard decisions. See [Step 0a: Read Implementation Notes Context](#step-0a-read-implementation-notes-context) for the exact `awk` filter (last 14 days, 7-day compression). If no notes file exists yet, skip this step silently.
+5. **Fetch assigned issues** — Get open issues assigned to `@me`, excluding `needs-input`
+6. **Plan the sequence** — Do not process issues in FIFO or LIFO order. Review the full set as a batch and decide the best execution order. See [Planning the Sequence](#planning-the-sequence) below.
+7. **Process each issue in the planned order**:
    - Simple → take action directly
    - Complex → make plan, present to reporter, wait for input if needed
    - Blocked → label `needs-input`, comment, skip
-7. **Report summary** including the planned sequence and the rationale for the chosen order
+8. **Report summary** including the planned sequence and the rationale for the chosen order
 
 ## Planning the Sequence
 
