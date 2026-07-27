@@ -104,9 +104,14 @@ Before running any git commands, derive the path to the main working directory (
 ```bash
 git fetch origin main
 MAIN_TREE=$(git worktree list --porcelain | grep -m1 "^worktree " | sed 's/^worktree //')
+# Namespace worktrees by the origin URL so multiple repos with overlapping issue
+# numbers don't collide under /tmp. `git hash-object --stdin` gives a deterministic
+# 40-char SHA-1 of any string without needing extra tools (sha256sum, etc.).
+WT_PREFIX=$(git ls-remote --get-url origin | git hash-object --stdin | cut -c1-8)
+WT_PATH="/tmp/${WT_PREFIX}-complete-tasks-issue-$NUMBER"
 ```
 
-From the main tree, you can run `git worktree list` to see all worktrees and perform operations.
+From the main tree, you can run `git worktree list` to see all worktrees and perform operations. All worktree paths in subsequent steps are derived from `$WT_PATH`.
 
 ### Step 0b: Check for Existing PR
 
@@ -120,25 +125,25 @@ if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
   PR_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
   echo "Found existing PR #$PR_NUMBER ($PR_BRANCH)"
   # Check if the branch exists locally as a worktree
-  if git worktree list | grep -q "complete-tasks-issue-$NUMBER"; then
+  if git worktree list | grep -q "$WT_PATH"; then
     # Verify the worktree is clean before reusing — refuse if it has uncommitted changes
-    if [ -n "$(git -C .git/worktrees/complete-tasks-issue-$NUMBER status --porcelain)" ]; then
+    if [ -n "$(git -C "$WT_PATH" status --porcelain)" ]; then
       echo "Existing worktree for issue $NUMBER has uncommitted changes — skipping this issue"
       exit 0
     fi
-    echo "Worktree already exists at .git/worktrees/complete-tasks-issue-$NUMBER"
-    cd .git/worktrees/complete-tasks-issue-$NUMBER
+    echo "Worktree already exists at $WT_PATH"
+    cd "$WT_PATH"
     git checkout "$PR_BRANCH"
   elif git branch -r | grep -q "origin/$PR_BRANCH"; then
     # Branch exists remotely but no local worktree — reuse it
     # Wrap in a re-check: a parallel run could delete the remote branch between the
     # existence check above and the worktree add below.
     echo "Reusing remote branch $PR_BRANCH"
-    if ! git worktree add .git/worktrees/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"; then
+    if ! git worktree add "$WT_PATH" "origin/$PR_BRANCH"; then
       echo "PR #$PR_NUMBER exists but branch $PR_BRANCH could not be checked out — skipping this issue"
       exit 0
     fi
-    cd .git/worktrees/complete-tasks-issue-$NUMBER
+    cd "$WT_PATH"
   else
     echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
     exit 0
@@ -156,12 +161,12 @@ If a PR was found and reused, skip the worktree creation and go directly to Step
 Create a new worktree with a dedicated branch for the issue:
 ```bash
 cd "$MAIN_TREE"
-git worktree add .git/worktrees/complete-tasks-issue-$NUMBER origin/main
-cd .git/worktrees/complete-tasks-issue-$NUMBER
+git worktree add "$WT_PATH" origin/main
+cd "$WT_PATH"
 git checkout -b issue/$NUMBER-$short-description
 ```
 
-Worktrees are created under `.git/worktrees/complete-tasks-issue-$NUMBER`.
+Worktrees are created under `$WT_PATH` (typically `/tmp/<8-char-origin-hash>-complete-tasks-issue-$NUMBER`) — using `/tmp` avoids a bug where `git worktree add .git/worktrees/...` creates worktrees with internal `.git` files when run from inside a worktree session. The origin-hash prefix prevents collisions when multiple agents work on different repos that happen to share issue numbers.
 
 ### Step 2: Make Changes
 
@@ -304,10 +309,10 @@ Reviews can stack: addressing one round of feedback may prompt another. Loop bac
 After creating the PR, you can remove the worktree. First make sure the session isn't inside the worktree being removed (otherwise `git worktree remove` will fail or leave the session in an invalid state):
 ```bash
 cd "$MAIN_TREE"
-git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER
+git worktree remove "$WT_PATH"
 ```
 
-**Note:** Worktrees created by this skill are stored under `.git/worktrees/complete-tasks-issue-*` inside the repo.
+**Note:** Worktrees created by this skill are stored under `/tmp/<origin-hash>-complete-tasks-issue-*`.
 
 ## Stale Worktree Cleanup
 
@@ -317,10 +322,10 @@ git fetch --prune origin
 git worktree list
 ```
 
-For each worktree under `complete-tasks-issue-*` whose branch has been merged and deleted from remote, cd back to the main tree first (to avoid removing a worktree you're inside) and then remove:
+For each worktree matching `${WT_PREFIX}-complete-tasks-issue-*` (same origin hash) whose branch has been merged and deleted from remote, cd back to the main tree first (to avoid removing a worktree you're inside) and then remove:
 ```bash
 cd "$MAIN_TREE"
-git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER --force
+git worktree remove "$WT_PATH" --force
 ```
 
 Use `--force` if the worktree directory has untracked files from a previous session.
