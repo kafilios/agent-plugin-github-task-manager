@@ -120,25 +120,25 @@ if [ -n "$EXISTING_PR" ] && [ "$EXISTING_PR" != "null" ]; then
   PR_BRANCH=$(echo "$EXISTING_PR" | jq -r '.headRefName')
   echo "Found existing PR #$PR_NUMBER ($PR_BRANCH)"
   # Check if the branch exists locally as a worktree
-  if git worktree list | grep -q "complete-tasks-issue-$NUMBER"; then
+  if git worktree list | grep -q "/tmp/complete-tasks-issue-$NUMBER"; then
     # Verify the worktree is clean before reusing — refuse if it has uncommitted changes
-    if [ -n "$(git -C .git/worktrees/complete-tasks-issue-$NUMBER status --porcelain)" ]; then
+    if [ -n "$(git -C /tmp/complete-tasks-issue-$NUMBER status --porcelain)" ]; then
       echo "Existing worktree for issue $NUMBER has uncommitted changes — skipping this issue"
       exit 0
     fi
-    echo "Worktree already exists at .git/worktrees/complete-tasks-issue-$NUMBER"
-    cd .git/worktrees/complete-tasks-issue-$NUMBER
+    echo "Worktree already exists at /tmp/complete-tasks-issue-$NUMBER"
+    cd /tmp/complete-tasks-issue-$NUMBER
     git checkout "$PR_BRANCH"
   elif git branch -r | grep -q "origin/$PR_BRANCH"; then
     # Branch exists remotely but no local worktree — reuse it
     # Wrap in a re-check: a parallel run could delete the remote branch between the
     # existence check above and the worktree add below.
     echo "Reusing remote branch $PR_BRANCH"
-    if ! git worktree add .git/worktrees/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"; then
+    if ! git worktree add /tmp/complete-tasks-issue-$NUMBER "origin/$PR_BRANCH"; then
       echo "PR #$PR_NUMBER exists but branch $PR_BRANCH could not be checked out — skipping this issue"
       exit 0
     fi
-    cd .git/worktrees/complete-tasks-issue-$NUMBER
+    cd /tmp/complete-tasks-issue-$NUMBER
   else
     echo "PR #$PR_NUMBER exists but branch $PR_BRANCH is gone — skipping this issue"
     exit 0
@@ -156,12 +156,12 @@ If a PR was found and reused, skip the worktree creation and go directly to Step
 Create a new worktree with a dedicated branch for the issue:
 ```bash
 cd "$MAIN_TREE"
-git worktree add .git/worktrees/complete-tasks-issue-$NUMBER origin/main
-cd .git/worktrees/complete-tasks-issue-$NUMBER
+git worktree add /tmp/complete-tasks-issue-$NUMBER origin/main
+cd /tmp/complete-tasks-issue-$NUMBER
 git checkout -b issue/$NUMBER-$short-description
 ```
 
-Worktrees are created under `.git/worktrees/complete-tasks-issue-$NUMBER`.
+Worktrees are created under `/tmp/complete-tasks-issue-$NUMBER` — using `/tmp` avoids a bug where `git worktree add .git/worktrees/...` creates worktrees with internal `.git` files when run from inside a worktree session.
 
 ### Step 2: Make Changes
 
@@ -304,10 +304,10 @@ Reviews can stack: addressing one round of feedback may prompt another. Loop bac
 After creating the PR, you can remove the worktree. First make sure the session isn't inside the worktree being removed (otherwise `git worktree remove` will fail or leave the session in an invalid state):
 ```bash
 cd "$MAIN_TREE"
-git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER
+git worktree remove /tmp/complete-tasks-issue-$NUMBER
 ```
 
-**Note:** Worktrees created by this skill are stored under `.git/worktrees/complete-tasks-issue-*` inside the repo.
+**Note:** Worktrees created by this skill are stored under `/tmp/complete-tasks-issue-*`.
 
 ## Stale Worktree Cleanup
 
@@ -320,7 +320,7 @@ git worktree list
 For each worktree under `complete-tasks-issue-*` whose branch has been merged and deleted from remote, cd back to the main tree first (to avoid removing a worktree you're inside) and then remove:
 ```bash
 cd "$MAIN_TREE"
-git worktree remove .git/worktrees/complete-tasks-issue-$NUMBER --force
+git worktree remove /tmp/complete-tasks-issue-$NUMBER --force
 ```
 
 Use `--force` if the worktree directory has untracked files from a previous session.
