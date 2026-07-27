@@ -113,6 +113,70 @@ WT_PATH="/tmp/${WT_PREFIX}-complete-tasks-issue-$NUMBER"
 
 From the main tree, you can run `git worktree list` to see all worktrees and perform operations. All worktree paths in subsequent steps are derived from `$WT_PATH`.
 
+### Step 0a: Read Implementation Notes Context
+
+Before triaging issues, check `IMPLEMENTATION_NOTES.md` at the repo root for prior reasoning. This file (created and maintained by the skill) records hard decisions made in previous tasks so subsequent runs don't have to rediscover them.
+
+```bash
+NOTES_FILE="$MAIN_TREE/IMPLEMENTATION_NOTES.md"
+if [ -f "$NOTES_FILE" ]; then
+  echo "=== IMPLEMENTATION_NOTES.md (last 14 days) ==="
+  # Two lookback windows:
+  #   - <= 7 days old: full text shown
+  #   - 7-14 days old: only header + first line of body (the "key point") shown
+  #   - > 14 days old: omitted entirely
+  # The writer should keep entries concise; this read filter is a safety net,
+  # not a substitute for writing discipline.
+  NOW_EPOCH=$(date -u +%s)
+  WEEK_EPOCH=$((NOW_EPOCH - 7 * 86400))
+  CUTOFF_EPOCH=$((NOW_EPOCH - 14 * 86400))
+  awk -v week="$WEEK_EPOCH" -v cutoff="$CUTOFF_EPOCH" '
+    BEGIN { entry=""; body=""; date=""; in_entry=0 }
+    /^## [0-9]{4}-[0-9]{2}-[0-9]{2}/ {
+      if (in_entry && date != "") {
+        d_str = date; gsub("-", " ", d_str)
+        d = mktime(d_str " 00 00 00")
+        if (d >= cutoff) {
+          if (d >= week) {
+            print entry body "\n"
+          } else {
+            # Compressed: header + first content line of body only
+            key = body
+            sub(/^\n+/, "", key)        # strip leading newlines
+            sub(/\n.*$/, "", key)        # keep only the first line
+            print entry "(summary) " key "\n"
+          }
+        }
+      }
+      date = substr($0, 4, 10)
+      entry = $0 "\n"; body = ""; in_entry = 1; next
+    }
+    in_entry { body = body $0 "\n" }
+    END { if (in_entry && date != "") {
+      d_str = date; gsub("-", " ", d_str)
+      d = mktime(d_str " 00 00 00")
+      if (d >= cutoff) {
+        if (d >= week) {
+          print entry body "\n"
+        } else {
+          key = body
+          sub(/^\n+/, "", key)
+          sub(/\n.*$/, "", key)
+          print entry "(summary) " key "\n"
+        }
+      }
+    } }
+  ' "$NOTES_FILE"
+  echo "=== END ==="
+else
+  echo "No IMPLEMENTATION_NOTES.md yet — this is the first run."
+fi
+```
+
+Entries within the last 7 days are shown in full. Entries 7-14 days old are compressed to their header + the first content line (the "key point"). Entries older than 14 days are omitted. The file on disk keeps the full historical text — only the read filter is lossy. If the file grows unreasonably large, the user can manually compress or archive old sections; the skill does not do destructive edits to the file.
+
+Use any patterns, prior decisions, or "gotchas" surfaced here to inform the current task. If you change your approach because of a prior note, briefly comment on it in the Step 7 entry for this task so the reasoning chain is preserved.
+
 ### Step 0b: Check for Existing PR
 
 Before creating a new worktree, always check if a PR already exists for this issue to avoid duplicates. Match by **head-branch name** (the `issue/$NUMBER-*` pattern) — title substrings false-match (e.g. `#12` inside `#123`):
@@ -386,6 +450,80 @@ If a reviewer asks for a project-level decision (rename the repo, change release
 #### Step 6e: Repeat until clean
 
 Reviews can stack: addressing one round of feedback may prompt another. Loop back to Step 6a after each push. Stop when there are no `CHANGES_REQUESTED` reviews and no open inline or conversation comments. Once clean, report the final state in the summary.
+
+### Step 7: Append Hard Decisions to IMPLEMENTATION_NOTES.md
+
+After the PR is created (and review feedback is clean), capture any non-obvious decisions made during this task in `IMPLEMENTATION_NOTES.md` at the repo root. This is the project-wide log the skill reads in Step 0a of subsequent runs.
+
+**What to write** — only decisions that would cost the next run time to rediscover:
+- Choosing between approaches where the alternatives were viable ("used X instead of Y because Z").
+- Skipping a step with rationale ("rebase skipped because branch already up to date").
+- Inferring intent from a sparse issue body ("treated the request as X because Y was ambiguous").
+- Leaving a TODO or known limitation that another contributor should know about.
+- Reversing a Step 0a prior decision (so the next run sees the correction).
+
+**What NOT to write** — routine facts that are already in the diff, PR description, or commit message:
+- File names changed.
+- The fact that a PR was created (visible in `git log`).
+- Mechanical steps the skill already documents.
+
+**Format** — one entry per task. Each entry is a `## YYYY-MM-DD — issue #N (<short title>)` header followed by 1-3 bullet points. The LLM is free to write entries in its own style; the structure is a soft guide, not a contract. Examples:
+
+```markdown
+## 2026-07-27 — issue #31 (parallel-run PR races)
+- Switched `gh pr list` from `--state all` to `--state open` so MERGED PRs don't trigger spurious 'reuse' paths.
+- Added 2s sleep + re-fetch fallback to absorb push→propagation windows.
+- Did not refactor into a helper function; the logic is local to Step 0b and refactoring risks regression.
+
+## 2026-07-15 — issue #12 (auto-pull main)
+- Used `git pull origin main` (not `git pull --rebase`) because the sandboxed environment lacks safe.git config and conflicts would otherwise surface as merge commits.
+- Logged the reasoning here so the next run doesn't "fix" it back to rebase.
+```
+
+**Submission policy** — the file is committed in the PR that adds entries to it. If two PRs touch it at the same time, the second PR's rebase onto main resolves the conflict (entries are append-only with date-stamped headers, so conflict markers are unambiguous).
+
+```bash
+NOTES_FILE="$WT_PATH/IMPLEMENTATION_NOTES.md"
+# Always write inside the worktree so the entry lands on the PR branch.
+# If the file doesn't exist yet, create it with a one-line header.
+if [ ! -f "$NOTES_FILE" ]; then
+  cat > "$NOTES_FILE" <<'HEADER'
+# Implementation Notes
+
+Hard decisions made by the `complete-tasks` skill. Read by Step 0a of subsequent runs (last 14 days). Older entries are kept in the file but omitted from the read filter.
+
+HEADER
+fi
+
+# Compose the entry. DATE is from `date -u +%Y-%m-%d`; ONLY append entries
+# that satisfy the "what to write" criteria above — keep this empty if the
+# task was a routine fix with no non-obvious decisions.
+DATE=$(date -u +%Y-%m-%d)
+cat >> "$NOTES_FILE" <<ENTRY
+
+## $DATE - issue #$NUMBER ($TITLE)
+<DRAFT THE BULLET POINTS HERE>
+
+ENTRY
+```
+
+After appending, commit on the PR branch and push. The PR description already covers the high-level "what changed"; this commit's message is the natural place to summarize the entries:
+
+```bash
+cd "$WT_PATH"
+git add IMPLEMENTATION_NOTES.md
+git commit -m "docs: append implementation notes for issue #$NUMBER
+
+$HUMAN_READABLE_SUMMARY_OF_DECISIONS
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Push to the same PR branch. force-with-lease is safe because the only
+# commits on this branch since origin are local.
+git push --force-with-lease origin issue/$NUMBER-$short-description
+```
+
+If no decisions qualify for the notes file (purely routine fix), skip the commit and move on — don't force an entry.
 
 ### Cleanup Worktrees
 
