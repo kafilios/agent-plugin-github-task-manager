@@ -171,13 +171,14 @@ Make all necessary code changes in the worktree directory.
 
 ```bash
 git add -A
-# Author identity comes from the environment (GIT_AUTHOR_NAME / GIT_AUTHOR_EMAIL or
-# the system GIT_COMMITTER_* env vars). Do NOT read git config user.name/user.email —
-# those reflect the user's local setup, not the identity they want attributed to a
-# commit made on their behalf by this skill. If the env vars are unset, stop and ask
-# the user to set them rather than guessing.
-if [ -z "$GIT_AUTHOR_NAME" ] || [ -z "$GIT_AUTHOR_EMAIL" ]; then
-  echo "GIT_AUTHOR_NAME and GIT_AUTHOR_EMAIL must be set before committing. Aborting."
+# Author and committer identity come from the environment. Set both
+# GIT_AUTHOR_* and GIT_COMMITTER_* so commits are attributed consistently
+# (without GIT_COMMITTER_*, git falls back to the system gitconfig, which
+# may have a different identity such as a machine's default user).
+if [ -z "$GIT_AUTHOR_NAME" ] || [ -z "$GIT_AUTHOR_EMAIL" ] ||
+   [ -z "$GIT_COMMITTER_NAME" ] || [ -z "$GIT_COMMITTER_EMAIL" ]; then
+  echo "GIT_AUTHOR_NAME, GIT_AUTHOR_EMAIL, GIT_COMMITTER_NAME, and GIT_COMMITTER_EMAIL"
+  echo "must all be set before committing. Aborting."
   exit 1
 fi
 
@@ -268,6 +269,12 @@ If the same point is raised both as a whole-PR comment and as an inline comment,
 For each actionable item, make the change in the worktree, then commit and push. One commit per logical change is usually right; if multiple comments are minor (typos, wording), batch them into a single `Address review feedback` commit.
 
 ```bash
+# Verify GIT_COMMITTER_* are set (GIT_AUTHOR_* should already be set from Step 3)
+if [ -z "$GIT_COMMITTER_NAME" ] || [ -z "$GIT_COMMITTER_EMAIL" ]; then
+  echo "GIT_COMMITTER_NAME and GIT_COMMITTER_EMAIL must be set before committing. Aborting."
+  exit 1
+fi
+
 git add -A
 git commit -m "Address PR review feedback
 
