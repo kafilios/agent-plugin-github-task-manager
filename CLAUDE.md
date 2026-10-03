@@ -1,13 +1,16 @@
-# github-task-manager Skill Distribution
+# github-task-manager Plugin Source
 
-This repository is the distribution source for the `github-task-manager` Claude skill.
+Source repo for the `github-task-manager` Claude plugin. The dev
+marketplace (declared in `.claude-plugin/marketplace.json`) is named
+`dev`. The published distribution lives in `kafilios/agent-plugins`
+(catalog name `d-agent-plugins`) and is updated by `./scripts/publish`.
 
 # CLAUDE.md
 
 ## Skills
 
 - Skills live in `plugins/github-task-manager/skills/<skill-name>/SKILL.md`
-- This repo is the distribution source for the `github-task-manager` plugin
+- This repo is the source for the `github-task-manager` plugin (dev marketplace: `dev`)
 
 ## Skill Development
 
@@ -17,10 +20,21 @@ This repository is the distribution source for the `github-task-manager` Claude 
 ## Plugin Distribution
 
 - Plugin lives at `plugins/<name>/.claude-plugin/plugin.json` + `plugins/<name>/skills/`
-- Marketplace catalog at `.claude-plugin/marketplace.json` (lists each plugin with `source: "./plugins/<name>"`)
-- `.claude/settings.json` (gitignored) declares a `directory` source at `.` and enables the plugin; `/reload-plugins` picks up uncommitted edits — no commit/push needed for local dev
+- Dev marketplace catalog at `.claude-plugin/marketplace.json` (`name: "dev"`, lists each plugin with `source: "./plugins/<name>"`)
+- `.claude/settings.json` is tracked in this repo and points `enabledPlugins` at `github-task-manager@dev`
 - For published distribution, swap the `directory` source for `git` (URL or `github` repo)
 - Plugins are not auto-enabled by being declared in a marketplace; `enabledPlugins: true` is required
+
+## Publishing
+
+- `./scripts/publish` clones `kafilios/agent-plugins` into `.worktrees/publish-<ts>/` (gitignored), copies `plugins/<slug>/.claude-plugin/plugin.json` and `plugins/<slug>/skills/*`, commits, and pushes
+- Bump `version` in `plugins/<slug>/.claude-plugin/plugin.json` manually before publishing
+- Test publishes: `PUBLISH_MARKETPLACE_BRANCH=test-publish-$(date +%s) ./scripts/publish`
+- The script does NOT edit the marketplace catalog on `agent-plugins` — that is hand-curated
+
+## Repo prerequisites
+
+- `.worktrees/` must be in `.gitignore` (the publish script writes temp clones there)
 
 ## GitHub Integration
 
