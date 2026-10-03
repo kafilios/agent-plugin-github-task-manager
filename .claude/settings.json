@@ -1,9 +1,9 @@
 {
   "enabledPlugins": {
-    "github-task-manager@local": true
+    "github-task-manager@dev": true
   },
   "extraKnownMarketplaces": {
-    "local": {
+    "dev": {
       "source": {
         "source": "directory",
         "path": "."
