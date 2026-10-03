@@ -104,7 +104,15 @@ log "Cloning ${MARKETPLACE_REPO} (branch ${MARKETPLACE_BRANCH}) into ${WORKTREE_
 
 # Auth-injected for this single clone, then scrubbed from .git/config.
 AUTHED_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${MARKETPLACE_REPO}.git"
-git clone --depth 1 --branch "${MARKETPLACE_BRANCH}" "${AUTHED_URL}" "${WORKTREE_DIR}"
+# Try cloning the branch as-is; if it doesn't exist (e.g. on a fresh test
+# branch), fall back to a default-branch clone and create the target branch
+# locally so we can push it for the first time.
+if ! git clone --depth 1 --branch "${MARKETPLACE_BRANCH}" "${AUTHED_URL}" "${WORKTREE_DIR}" 2>/dev/null; then
+  log "Branch ${MARKETPLACE_BRANCH} not found in ${MARKETPLACE_REPO}; will create it."
+  DEFAULT_BRANCH="${PUBLISH_DEFAULT_BRANCH:-main}"
+  git clone --depth 1 --branch "${DEFAULT_BRANCH}" "${AUTHED_URL}" "${WORKTREE_DIR}"
+  git -C "${WORKTREE_DIR}" checkout -B "${MARKETPLACE_BRANCH}"
+fi
 git -C "${WORKTREE_DIR}" remote set-url origin "https://github.com/${MARKETPLACE_REPO}.git"
 
 PLUGIN_SRC="${SOURCE_REPO_ROOT}/plugins/${PLUGIN_SLUG}"
