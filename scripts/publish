@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+#
+# Publish the github-task-manager plugin from this source repo
+# into the kafilios/agent-plugins marketplace repo.
+#
+# Usage:
+#   ./scripts/publish                 # full publish
+#   ./scripts/publish --dry-run       # stop before push
+#   ./scripts/publish --skip-cleanup  # keep .worktrees/ for debugging
+#   ./scripts/publish --help          # show this header
+#
+# Requires: git, bash 4+, GITHUB_TOKEN env var (with `repo` scope on the marketplace).
+#
+# What gets copied (and only this):
+#   plugins/<slug>/.claude-plugin/plugin.json
+#   plugins/<slug>/skills/<skill>/*    (every file under each skills/<skill>/ directory)
+#
+# Everything else (README.md, CLAUDE.md, IMPLEMENTATION_NOTES.md, marketplace.json)
+# is intentionally NOT copied — those describe the source repo's dev workflow,
+# not the published plugin. The marketplace repo keeps its own copies.
+
+set -euo pipefail
+
+# ---------- Defaults ----------
+MARKETPLACE_REPO="${PUBLISH_MARKETPLACE_REPO:-kafilios/agent-plugins}"
+MARKETPLACE_BRANCH="${PUBLISH_MARKETPLACE_BRANCH:-main}"
+PLUGIN_SLUG="${PUBLISH_PLUGIN_SLUG:-github-task-manager}"
+
+# Resolve source repo root regardless of where the script was invoked from.
+SOURCE_REPO_ROOT="$(git rev-parse --show-toplevel)"
+
+# Temp worktree under .worktrees/ with a timestamp suffix so concurrent runs
+# do not collide and so a single re-run after a failure is obvious.
+WORKTREE_DIR="${SOURCE_REPO_ROOT}/.worktrees/publish-$(date -u +%Y%m%dT%H%M%SZ)"
+
+DRY_RUN=0
+SKIP_CLEANUP=0
+
+# ---------- Argument parsing ----------
+for arg in "$@"; do
+  case "$arg" in
+    --dry-run)      DRY_RUN=1 ;;
+    --skip-cleanup) SKIP_CLEANUP=1 ;;
+    -h|--help)
+      sed -n '2,21p' "$0"
+      exit 0
+      ;;
+    *)
+      printf '\033[1;31m[publish]\033[0m Unknown argument: %s\n' "$arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# ---------- Helpers ----------
+log()  { printf '\033[1;34m[publish]\033[0m %s\n' "$*"; }
+fail() { printf '\033[1;31m[publish]\033[0m %s\n' "$*" >&2; exit 1; }
+
+cleanup() {
+  local rc=$?
+  if (( SKIP_CLEANUP )); then
+    log "Keeping worktree at ${WORKTREE_DIR} (--skip-cleanup or --dry-run)."
+    exit "$rc"
+  fi
+  if [[ $rc -eq 0 && -d "${WORKTREE_DIR}" ]]; then
+    log "Cleaning up worktree at ${WORKTREE_DIR}"
+    rm -rf "${WORKTREE_DIR}"
+  elif [[ $rc -ne 0 && -d "${WORKTREE_DIR}" ]]; then
+    log "Push failed (exit $rc). Worktree kept for inspection at ${WORKTREE_DIR}."
+    log "Resolve conflicts there, or 'rm -rf' it and re-run."
+  fi
+  exit "$rc"
+}
+trap cleanup EXIT INT TERM
+
+require_clean_source() {
+  if ! git -C "${SOURCE_REPO_ROOT}" diff --quiet \
+     || ! git -C "${SOURCE_REPO_ROOT}" diff --cached --quiet; then
+    fail "Source repo has uncommitted changes. Commit or stash them first."
+  fi
+  if [[ -n "$(git -C "${SOURCE_REPO_ROOT}" status --porcelain)" ]]; then
+    fail "Source repo has untracked files. Commit or remove them first."
+  fi
+}
+
+# ---------- Preflight ----------
+if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+  fail "GITHUB_TOKEN env var is not set. Export a token with 'repo' scope on ${MARKETPLACE_REPO} and re-run."
+fi
+
+require_clean_source
+
+if [[ ! -d "${SOURCE_REPO_ROOT}/plugins/${PLUGIN_SLUG}" ]]; then
+  fail "Source repo is missing plugins/${PLUGIN_SLUG}/. Is this the right repo?"
+fi
+
+# ---------- Clone marketplace into temp worktree ----------
+mkdir -p "${SOURCE_REPO_ROOT}/.worktrees"
+
+log "Cloning ${MARKETPLACE_REPO} (branch ${MARKETPLACE_BRANCH}) into ${WORKTREE_DIR}"
+
+# Auth-injected for this single clone, then scrubbed from .git/config.
+AUTHED_URL="https://x-access-token:${GITHUB_TOKEN}@github.com/${MARKETPLACE_REPO}.git"
+git clone --depth 1 --branch "${MARKETPLACE_BRANCH}" "${AUTHED_URL}" "${WORKTREE_DIR}"
+git -C "${WORKTREE_DIR}" remote set-url origin "https://github.com/${MARKETPLACE_REPO}.git"
+
+PLUGIN_SRC="${SOURCE_REPO_ROOT}/plugins/${PLUGIN_SLUG}"
+PLUGIN_DST="${WORKTREE_DIR}/plugins/${PLUGIN_SLUG}"
+
+# ---------- Apply file mappings ----------
+log "Copying plugin manifest and skills:"
+
+# 1. plugin.json
+if [[ -f "${PLUGIN_SRC}/.claude-plugin/plugin.json" ]]; then
+  mkdir -p "${PLUGIN_DST}/.claude-plugin"
+  cp "${PLUGIN_SRC}/.claude-plugin/plugin.json" "${PLUGIN_DST}/.claude-plugin/plugin.json"
+  log "  plugins/${PLUGIN_SLUG}/.claude-plugin/plugin.json"
+else
+  fail "Source is missing plugins/${PLUGIN_SLUG}/.claude-plugin/plugin.json."
+fi
+
+# 2. Every skill directory under skills/<skill>/, every file within.
+if [[ -d "${PLUGIN_SRC}/skills" ]]; then
+  for skill_dir in "${PLUGIN_SRC}"/skills/*/; do
+    [[ -d "$skill_dir" ]] || continue
+    skill_name="$(basename "$skill_dir")"
+    mkdir -p "${PLUGIN_DST}/skills/${skill_name}"
+    # Copy every file (not just SKILL.md) so future skills with extra assets keep working.
+    find "$skill_dir" -mindepth 1 -maxdepth 1 -type f -exec cp {} "${PLUGIN_DST}/skills/${skill_name}/" \;
+    log "  plugins/${PLUGIN_SLUG}/skills/${skill_name}/ (all files)"
+  done
+else
+  fail "Source is missing plugins/${PLUGIN_SLUG}/skills/."
+fi
+
+# ---------- Diff summary ----------
+log "Diff vs marketplace HEAD:"
+git -C "${WORKTREE_DIR}" add -A
+
+if git -C "${WORKTREE_DIR}" diff --cached --quiet; then
+  log "No changes to publish. Exiting."
+  SKIP_CLEANUP=0   # safe to remove an empty worktree
+  exit 0
+fi
+
+git -C "${WORKTREE_DIR}" diff --cached --stat
+
+# ---------- Commit ----------
+SOURCE_VERSION="$(jq -r '.version // "unknown"' "${PLUGIN_SRC}/.claude-plugin/plugin.json" 2>/dev/null || echo unknown)"
+COMMIT_MSG="Publish ${PLUGIN_SLUG} v${SOURCE_VERSION}"
+
+SOURCE_REMOTE="$(git -C "${SOURCE_REPO_ROOT}" remote get-url origin 2>/dev/null || echo unknown)"
+SOURCE_SHA="$(git -C "${SOURCE_REPO_ROOT}" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+
+log "Committing: ${COMMIT_MSG}"
+git -C "${WORKTREE_DIR}" \
+  -c user.name="$(git -C "${SOURCE_REPO_ROOT}" config user.name 2>/dev/null || echo "${PLUGIN_SLUG}")" \
+  -c user.email="$(git -C "${SOURCE_REPO_ROOT}" config user.email 2>/dev/null || echo noreply@github.com)" \
+  commit -m "${COMMIT_MSG}
+
+Published from ${SOURCE_REMOTE} @ ${SOURCE_SHA}"
+
+# ---------- Push ----------
+if (( DRY_RUN )); then
+  log "DRY RUN: skipping push. Worktree left in place at ${WORKTREE_DIR}."
+  log "Re-run without --dry-run to push, or 'rm -rf' the worktree when done."
+  SKIP_CLEANUP=1
+  exit 0
+fi
+
+log "Pushing to origin/${MARKETPLACE_BRANCH} ..."
+if ! git -C "${WORKTREE_DIR}" push origin "${MARKETPLACE_BRANCH}"; then
+  # Trap will preserve the worktree and tell the user where to look.
+  exit 1
+fi
+
+log "Published ${PLUGIN_SLUG} v${SOURCE_VERSION} -> ${MARKETPLACE_REPO}@${MARKETPLACE_BRANCH}."
+log "Verify with: curl -s https://raw.githubusercontent.com/${MARKETPLACE_REPO}/${MARKETPLACE_BRANCH}/plugins/${PLUGIN_SLUG}/.claude-plugin/plugin.json | jq ."
