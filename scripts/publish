@@ -78,7 +78,10 @@ require_clean_source() {
      || ! git -C "${SOURCE_REPO_ROOT}" diff --cached --quiet; then
     fail "Source repo has uncommitted changes. Commit or stash them first."
   fi
-  if [[ -n "$(git -C "${SOURCE_REPO_ROOT}" status --porcelain)" ]]; then
+  # --ignored=traditional would still report ignored files; we want only
+  # files the publish would miss. .worktrees/ is gitignored and the script
+  # is responsible for cleaning it up, so it must not block publishing.
+  if [[ -n "$(git -C "${SOURCE_REPO_ROOT}" status --porcelain --ignored=no)" ]]; then
     fail "Source repo has untracked files. Commit or remove them first."
   fi
 }
