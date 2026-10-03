@@ -668,3 +668,5 @@ Issues advanced but not closed: [list with links]
 ```
 
 If the order changed mid-run, call that out explicitly.
+
+<!-- test-publish: initial test publish at 2026-10-03T04:25:51Z -->
