@@ -2,8 +2,8 @@
 
 Source repo for the `github-task-manager` Claude plugin. The dev
 marketplace (declared in `.claude-plugin/marketplace.json`) is named
-`dev`. The published distribution lives in `kafilios/agent-plugins`
-(catalog name `d-agent-plugins`) and is updated by `./scripts/publish`.
+`dev`. The published distribution lives in `midnightideas/agent-plugins`
+(catalog name `midnightideas`) and is updated by `./scripts/publish`.
 
 # CLAUDE.md
 
@@ -27,10 +27,10 @@ marketplace (declared in `.claude-plugin/marketplace.json`) is named
 
 ## Publishing
 
-- `./scripts/publish` clones `kafilios/agent-plugins` into `.worktrees/publish-<ts>/` (gitignored), copies `plugins/<slug>/.claude-plugin/plugin.json` and `plugins/<slug>/skills/*`, commits, and pushes
+- `./scripts/publish` clones `midnightideas/agent-plugins` into `.worktrees/publish-<ts>/` (gitignored), copies `plugins/<slug>/.claude-plugin/plugin.json` and `plugins/<slug>/skills/*`, commits, and pushes
 - Bump `version` in `plugins/<slug>/.claude-plugin/plugin.json` manually before publishing
 - Test publishes: `PUBLISH_MARKETPLACE_BRANCH=test-publish-$(date +%s) ./scripts/publish`
-- The script does NOT edit the marketplace catalog on `agent-plugins` — that is hand-curated
+- The script does NOT edit the marketplace catalog on `midnightideas/agent-plugins` — that is hand-curated
 
 ## Repo prerequisites
 

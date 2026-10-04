@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Publish the github-task-manager plugin from this source repo
-# into the kafilios/agent-plugins marketplace repo.
+# into the midnightideas/agent-plugins marketplace repo.
 #
 # Usage:
 #   ./scripts/publish                 # full publish
@@ -22,7 +22,7 @@
 set -euo pipefail
 
 # ---------- Defaults ----------
-MARKETPLACE_REPO="${PUBLISH_MARKETPLACE_REPO:-kafilios/agent-plugins}"
+MARKETPLACE_REPO="${PUBLISH_MARKETPLACE_REPO:-midnightideas/agent-plugins}"
 MARKETPLACE_BRANCH="${PUBLISH_MARKETPLACE_BRANCH:-main}"
 PLUGIN_SLUG="${PUBLISH_PLUGIN_SLUG:-github-task-manager}"
 
