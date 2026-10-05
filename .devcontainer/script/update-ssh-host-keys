@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Refresh host keys for docker context endpoints in .devcontainer/config/.ssh/known_hosts.
+# Run locally (the container can't reach these endpoints) before building the image.
+#
+# Usage: .devcontainer/script/update-ssh-host-keys [host ...]
+#        HOSTS="host ..." .devcontainer/script/update-ssh-host-keys
+
+set -euo pipefail
+
+DEFAULT_HOSTS=( exit-au-home exit-au-oci exit-tw-gcp )
+
+# readlink -f resolves symlinks (npx shims, ~/.local/bin) before dirname locates REPO_DIR.
+REPO_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/../.." && pwd)"
+DEST="${DEST:-${REPO_DIR}/.devcontainer/config/.ssh/known_hosts}"
+DEST_DIR="$(dirname "$DEST")"
+
+if [ "$#" -gt 0 ]; then
+  HOSTS=( "$@" )
+elif [ -n "${HOSTS:-}" ]; then
+  # shellcheck disable=SC2206  # intentional word splitting on whitespace
+  HOSTS=( ${HOSTS} )
+else
+  HOSTS=( "${DEFAULT_HOSTS[@]}" )
+fi
+
+command -v ssh-keyscan >/dev/null 2>&1 || {
+  echo "[ERROR] ssh-keyscan not found; install openssh-client" >&2
+  exit 1
+}
+
+mkdir -p "$DEST_DIR"
+touch "$DEST"  # awk below needs the input file to exist on first run
+
+TMP="$(mktemp -t update-ssh-host-keys.XXXXXX)"
+trap 'rm -f "$TMP"' EXIT
+
+# Drop banners and refresh targets' entries; keep other hosts' data lines.
+awk -v hosts="${HOSTS[*]}" '
+BEGIN {
+  n = split(hosts, arr, " ")
+  for (i = 1; i <= n; i++) patterns[arr[i]] = 1
+}
+/^#/ { next }
+{
+  if (!($1 in patterns)) print
+}' "$DEST" > "$TMP"
+
+echo "[INFO] updating host keys for: ${HOSTS[*]}"
+
+for HOST in "${HOSTS[@]}"; do
+  if ssh-keyscan -T 5 -q "$HOST" >> "$TMP" 2>/dev/null; then
+    echo "[INFO] ${HOST}: ok"
+  else
+    echo "[ERROR] ssh-keyscan failed for ${HOST}" >&2
+    exit 1
+  fi
+done
+
+# Sort alphabetically so refreshes don't reshuffle existing entries (merge-friendly).
+LC_ALL=C sort -o "$TMP" "$TMP"
+
+mv "$TMP" "$DEST"
+echo "[INFO] known_hosts updated at ${DEST}"
